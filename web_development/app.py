@@ -11,45 +11,9 @@ from flask_bcrypt import Bcrypt
 
 app = Flask(__name__)
 
-# Upload picture function
-
-# Configure upload folder
-UPLOAD_FOLDER = 'static/uploads'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Ensure the upload folder exists
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-@app.route('/')
-def home():
-    return render_template('index.html')
-
-@app.route('/upload', methods=['GET', 'POST'])
-def upload_file():
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            return 'No file part in the request', 400
-
-        file = request.files['file']
-
-        if file.filename == '':
-            return 'No selected file', 400
-
-        if file:
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-            file.save(file_path)
-            return redirect(url_for('uploaded_file', filename=file.filename))
-
-    return render_template('upload.html')
-
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return render_template('uploaded.html', filename=filename)
-
 
 # Login function
 
-app = Flask(__name__)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SECRET_KEY'] = 'thisisasecretkey'
@@ -142,6 +106,39 @@ def register():
 
     return render_template('register.html', form=form)
 
+# Upload picture function
+
+# Configure upload folder
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Ensure the upload folder exists
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def home():
+    return render_template('index.html')
+
+@app.route('/upload', methods=['GET', 'POST'])
+def upload_file():
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return 'No file part in the request', 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return 'No selected file', 400
+
+        if file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+            file.save(file_path)
+            return redirect(url_for('uploaded_file', filename=file.filename))
+
+    return render_template('upload.html')
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return render_template('uploaded.html', filename=filename)
 
 if __name__ == '__main__':
     app.run(debug=True)
