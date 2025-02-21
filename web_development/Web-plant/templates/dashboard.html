@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<h2>Upload a new plant image</h2>
+<form action="{{ url_for('upload_plant') }}" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept="image/*" required>
+    <button type="submit">Upload</button>
+</form>
+
+<h2>Your Plants</h2>
+{% for plant in plants %}
+    <div class="plant">
+        <img src="{{ plant.image_path }}" alt="{{ plant.plant_type }}">
+        <p>Type: {{ plant.plant_type }}</p>
+        <p>Disease: {{ plant.disease }}</p>
+        <p>Care Instructions: {{ plant.care_instructions }}</p>
+    </div>
+{% endfor %}
+
+<h2>Chat</h2>
+<div id="chat-window"></div>
+<form id="chat-form">
+    <input type="text" id="chat-input" placeholder="Type your message...">
+    <button type="submit">Send</button>
+</form>
+{% endblock %}
