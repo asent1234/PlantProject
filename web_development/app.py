@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for
 import os
 
 from flask import Flask, render_template, url_for, redirect
+from flask_scss import Scss
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin, login_user, LoginManager, login_required, logout_user, current_user
 from flask_wtf import FlaskForm
@@ -14,9 +15,10 @@ app = Flask(__name__)
 
 # Login function
 
-
+# call SQLALCHEMY
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SECRET_KEY'] = 'thisisasecretkey'
+# apply SQLALCHEMY
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 
@@ -31,6 +33,7 @@ def load_user(user_id):
 
 
 class User(db.Model, UserMixin):
+    # the content we want to get from users
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), nullable=False, unique=True)
     password = db.Column(db.String(80), nullable=False)
@@ -65,7 +68,7 @@ class LoginForm(FlaskForm):
 
 @app.route('/')
 def home():
-    return render_template('home.html')
+    return render_template('home.html') # point to the file you want use in the templates
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -116,7 +119,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def home():
-    return render_template('index.html')
+    return render_template('index.html') # the home page
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
