@@ -1,8 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for
 import os
-
-from flask import Flask, render_template, url_for, redirect
-from flask_scss import Scss
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin, login_user, LoginManager, login_required, logout_user, current_user
 from flask_wtf import FlaskForm
@@ -12,13 +9,16 @@ from flask_bcrypt import Bcrypt
 
 app = Flask(__name__)
 
-
-# Login function
-
-# call SQLALCHEMY
+# Configure upload folder
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SECRET_KEY'] = 'thisisasecretkey'
-# apply SQLALCHEMY
+
+# Ensure the upload folder exists
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Initialize extensions
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 
@@ -68,7 +68,7 @@ class LoginForm(FlaskForm):
 
 @app.route('/')
 def home():
-    return render_template('home.html') # point to the file you want use in the templates
+    return render_template('home.html')
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -96,7 +96,7 @@ def logout():
     return redirect(url_for('login'))
 
 
-@ app.route('/register', methods=['GET', 'POST'])
+@app.route('/register', methods=['GET', 'POST'])
 def register():
     form = RegisterForm()
 
@@ -109,19 +109,9 @@ def register():
 
     return render_template('register.html', form=form)
 
-# Upload picture function
-
-# Configure upload folder
-UPLOAD_FOLDER = 'static/uploads'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Ensure the upload folder exists
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-def home():
-    return render_template('index.html') # the home page
 
 @app.route('/upload', methods=['GET', 'POST'])
+# Removed @login_required to allow anyone to upload
 def upload_file():
     if request.method == 'POST':
         if 'file' not in request.files:
@@ -139,9 +129,12 @@ def upload_file():
 
     return render_template('upload.html')
 
+
 @app.route('/uploads/<filename>')
+# Removed @login_required to allow anyone to view uploads
 def uploaded_file(filename):
     return render_template('uploaded.html', filename=filename)
+
 
 if __name__ == '__main__':
     app.run(debug=True)
