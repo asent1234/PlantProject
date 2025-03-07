@@ -111,7 +111,6 @@ def register():
 
 
 @app.route('/upload', methods=['GET', 'POST'])
-# Removed @login_required to allow anyone to upload
 def upload_file():
     if request.method == 'POST':
         if 'file' not in request.files:
@@ -131,7 +130,6 @@ def upload_file():
 
 
 @app.route('/uploads/<filename>')
-# Removed @login_required to allow anyone to view uploads
 def uploaded_file(filename):
     return render_template('uploaded.html', filename=filename)
 
