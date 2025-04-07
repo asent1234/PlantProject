@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Results | Plant Disease Identification</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .result-card {
+            border-radius: 15px;
+            overflow: hidden;
+        }
+        .result-image {
+            width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+            background-color: #f8f9fa;
+            padding: 1rem;
+        }
+        .confidence-bar {
+            height: 10px;
+            border-radius: 5px;
+            background-color: #e9ecef;
+            margin: 10px 0;
+        }
+        .confidence-level {
+            height: 100%;
+            border-radius: 5px;
+            background-color: #86d70c;
+        }
+        .disease-info {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4">Analysis Results</h1>
+        
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card result-card">
+                    <div class="card-body p-0">
+                        <img src="{{ url_for('static', filename='uploads/' + filename) }}" alt="Plant image" class="result-image">
+                        
+                        <div class="p-4">
+                            <h2 class="card-title text-center mb-4">
+                                {% if disease == "Healthy Plant" %}
+                                    <span style="color: #86d70c"><i class="bi bi-check-circle"></i> Healthy Plant</span>
+                                {% else %}
+                                    <span style="color: #cf2118c2"><i class="bi bi-exclamation-triangle"></i> {{ disease }}</span>
+                                {% endif %}
+                            </h2>
+                            
+                            <div class="text-center mb-4">
+                                <p>Confidence Level: {{ "%.1f"|format(confidence*100) }}%</p>
+                                <div class="confidence-bar">
+                                    <div class="confidence-level" style="width: 75%;"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="disease-info">
+                                <h4>About this condition:</h4>
+                                {% if disease == "Healthy Plant" %}
+                                    <p>Your plant appears to be healthy! No signs of disease were detected in the uploaded image.</p>
+                                    <h5>Recommendations:</h5>
+                                    <ul>
+                                        <li>Continue with your current care routine</li>
+                                        <li>Ensure proper watering and sunlight exposure</li>
+                                        <li>Monitor for any changes in leaf color or texture</li>
+                                    </ul>
+                                {% elif disease == "Tomato Early Blight" %}
+                                    <p>Early blight is a fungal disease that affects tomato plants, causing brown spots with concentric rings on leaves.</p>
+                                    <h5>Recommendations:</h5>
+                                    <ul>
+                                        <li>Remove and destroy affected leaves</li>
+                                        <li>Apply fungicide specifically labeled for early blight</li>
+                                        <li>Ensure proper spacing between plants for air circulation</li>
+                                        <li>Water at the base of plants to keep foliage dry</li>
+                                    </ul>
+                                {% elif disease == "Apple Black Rot" %}
+                                    <p>Black rot is a fungal disease that affects apple trees, causing circular lesions on leaves and rotting fruit.</p>
+                                    <h5>Recommendations:</h5>
+                                    <ul>
+                                        <li>Remove and destroy infected leaves and fruit</li>
+                                        <li>Prune out cankers on branches</li>
+                                        <li>Apply fungicide during the growing season</li>
+                                        <li>Ensure good air circulation around trees</li>
+                                    </ul>
+                                {% elif disease == "Corn Common Rust" %}
+                                    <p>Common rust is a fungal disease that affects corn plants, causing small, reddish-brown pustules on leaves.</p>
+                                    <h5>Recommendations:</h5>
+                                    <ul>
+                                        <li>Apply fungicide early in the season</li>
+                                        <li>Plant rust-resistant corn varieties</li>
+                                        <li>Ensure proper spacing for air circulation</li>
+                                        <li>Rotate crops to reduce disease pressure</li>
+                                    </ul>
+                                {% elif disease == "Potato Late Blight" %}
+                                    <p>Late blight is a devastating fungal disease that affects potato plants, causing dark lesions on leaves and tubers.</p>
+                                    <h5>Recommendations:</h5>
+                                    <ul>
+                                        <li>Remove and destroy infected plants immediately</li>
+                                        <li>Apply fungicide preventatively</li>
+                                        <li>Ensure good drainage and air circulation</li>
+                                        <li>Plant resistant varieties when available</li>
+                                    </ul>
+                                {% else %}
+                                    <p>This appears to be a plant disease that affects the health and productivity of your plant.</p>
+                                    <h5>General Recommendations:</h5>
+                                    <ul>
+                                        <li>Remove affected leaves or plant parts</li>
+                                        <li>Consider appropriate fungicides or treatments</li>
+                                        <li>Improve air circulation around plants</li>
+                                        <li>Consult with a local extension service for specific advice</li>
+                                    </ul>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-4">
+                    <a href="{{ url_for('upload_file') }}" class="btn btn-primary">
+                        <i class="bi bi-upload"></i> Analyze Another Plant
+                    </a>
+                    
+                    {% if current_user.is_authenticated %}
+                        <a href="{{ url_for('view_history') }}" class="btn btn-info ms-2">
+                            <i class="bi bi-clock-history"></i> View History
+                        </a>
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary ms-2">
+                            <i class="bi bi-speedometer2"></i> Back to Dashboard
+                        </a>
+                    {% else %}
+                        <a href="{{ url_for('register') }}" class="btn btn-success ms-2">
+                            <i class="bi bi-person-plus"></i> Create Account to Save Results
+                        </a>
+                        <a href="{{ url_for('home') }}" class="btn btn-outline-secondary ms-2">
+                            <i class="bi bi-house"></i> Back to Home
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
