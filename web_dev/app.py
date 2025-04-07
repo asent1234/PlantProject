@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 
 # Configure upload folder
-UPLOAD_FOLDER = 'static/uploads'
+UPLOAD_FOLDER = 'web_dev/static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SECRET_KEY'] = 'thisisasecretkey'
