@@ -115,6 +115,8 @@ import cv2
 import numpy as np
 import os
 
+
+
 class PlantDiseaseModel:
     def __init__(self):
         # Model and class setup
@@ -123,6 +125,8 @@ class PlantDiseaseModel:
             "ConvNextAIPredictionModel",
             "plant_disease_convnext_best.pth"
         )
+        
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # Provided classes
         self.class_names = [
@@ -141,7 +145,7 @@ class PlantDiseaseModel:
         import torch.nn as nn
         self.model = models.convnext_tiny(weights=None)
         self.model.classifier[-1] = nn.Linear(self.model.classifier[-1].in_features, len(self.class_names))
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+        self.model.load_state_dict(torch.load(model_path, map_location=self.device, weights_only=False))
         self.model.to(self.device)
         self.model.eval()
         self.transform = transforms.Compose([
