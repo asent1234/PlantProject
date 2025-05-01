@@ -198,9 +198,27 @@ class PlantDiseaseModel:
             # Handle background class as error
             if pred_class == 'Background_without_leaves':
                 return {"error": "No plants detected in the image"}
+            # Gather all classes with >1% probability, excluding top and background
+            other_classes = []
+            for idx, prob in enumerate(probabilities):
+                if idx == top_idx.item():
+                    continue
+                if self.class_names[idx] == 'Background_without_leaves':
+                    continue
+                if prob.item() > 0.01:
+                    other_classes.append({
+                        'name': self.pretty_map[self.class_names[idx]],
+                        'prob': float(prob.item())
+                    })
+            # Sort descending by probability
+            other_classes = sorted(other_classes, key=lambda x: x['prob'], reverse=True)
+            # Build all_probabilities dict
+            all_probabilities = {self.class_names[idx]: float(prob.item()) for idx, prob in enumerate(probabilities)}
             return {
                 "disease": pretty,
                 "confidence": float(top_prob.item()),
+                "other_classes": other_classes,
+                "all_probabilities": all_probabilities,
                 "error": None
             }
         except Exception as e:
@@ -234,19 +252,83 @@ def get_chatbot_engine():
         chatbot_engine = PlantQueryEngine()
     return chatbot_engine
 
+# Simple dictionary to track last predictions
+last_predictions = {}
+
+@app.route('/chatbot/register', methods=['POST'])
+def register_prediction():
+    """Silent endpoint to register a prediction with a session"""
+    import sys
+    try:
+        # Parse request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No data provided'}), 400
+            
+        prediction_info = data.get('prediction_info', {})
+        session_id = data.get('session_id', 'default_session')
+        
+        # Extract prediction info
+        current_prediction = prediction_info.get('name', '')
+        
+        # Update tracking without checking for changes
+        if current_prediction:
+            last_predictions[session_id] = current_prediction
+            print(f"[Chatbot Debug] Registered initial prediction: {current_prediction} for session {session_id}", file=sys.stderr)
+        
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        import traceback
+        print(f"[Register Error] {str(e)}\n{traceback.format_exc()}", file=sys.stderr)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/chatbot', methods=['POST'])
 def chatbot():
-    data = request.json
-    user_message = data.get('message')
-    context = data.get('context', '')
-    # Compose prompt with context
-    prompt = f"Context:\n{context}\n---\nUser question: {user_message}"
+    """Handle chatbot requests with prediction change tracking"""
+    import sys
     try:
-        # Lazy load the chatbot engine only when needed
+        # Parse request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'response': 'Error: No data provided in request'}), 400
+            
+        user_message = data.get('message', '')
+        context = data.get('context', '')
+        prediction_info = data.get('prediction_info', {})
+        session_id = data.get('session_id', 'default_session')
+        
+        # Log received data
+        print(f"[Chatbot Debug] Received data: {data}", file=sys.stderr)
+        
+        # Check for prediction change
+        current_prediction = prediction_info.get('name', '')
+        system_message = ""
+        
+        if session_id in last_predictions and last_predictions[session_id] != current_prediction and current_prediction:
+            # Prediction changed - add system message
+            print(f"[Chatbot Debug] Prediction changed: {last_predictions[session_id]} → {current_prediction}", file=sys.stderr)
+            system_message = (f"[SYSTEM: The user has switched to analyzing a different plant condition: "
+                             f"'{current_prediction}' with {prediction_info.get('prob', '')}% confidence. "
+                             f"Please acknowledge this change and focus your answers on this new condition.]"
+                             f"\n\n")
+        
+        # Update tracking
+        if current_prediction:
+            last_predictions[session_id] = current_prediction
+        
+        # Compose prompt with context and possible system message
+        prompt = f"Context:\n{context}\n---\n{system_message}User question: {user_message}"
+        print(f"[Chatbot Debug] Prompt: {repr(prompt)}", file=sys.stderr)
+        
+        # Get response from LLM
         response = get_chatbot_engine().get_deepseek_completion(prompt, stream=False)
         return jsonify({'response': response})
+        
     except Exception as e:
-        return jsonify({'response': f'[Chatbot error] {str(e)}'}), 500
+        import traceback
+        print(f"[Chatbot Error] {str(e)}\n{traceback.format_exc()}", file=sys.stderr)
+        return jsonify({'response': f'[Chatbot error] An error occurred while processing your request. Please try again.'}), 500
 
 # Global flag to indicate if we're in startup mode
 APP_INITIALIZING = True
@@ -407,6 +489,31 @@ def process_image(filename):
         # Handle error case
         return render_template('error.html', error=result['error'], filename=filename)
     
+    # Gather all predictions above 1% (including top)
+    probabilities = result.get('all_probabilities')
+    all_predictions = []
+    if probabilities:
+        for cls_name, prob in probabilities.items():
+            if prob > 0.01:
+                pretty = get_plant_model().pretty_map[cls_name]
+                rec = PLANT_GENERAL_RECOMMENDATIONS.get(cls_name)
+                all_predictions.append({
+                    'raw': cls_name,
+                    'name': pretty,
+                    'prob': prob,
+                    'recommendation': rec
+                })
+    else:
+        # fallback for older predict
+        raw_class = next((k for k, v in get_plant_model().pretty_map.items() if v == result['disease']), None)
+        rec = PLANT_GENERAL_RECOMMENDATIONS.get(raw_class)
+        all_predictions = [{
+            'raw': raw_class,
+            'name': result['disease'],
+            'prob': result['confidence'],
+            'recommendation': rec
+        }]
+
     # Save to history if user is logged in
     if current_user.is_authenticated:
         history_entry = History(
@@ -431,8 +538,29 @@ def process_image(filename):
         filename=filename,
         disease=result['disease'],
         confidence=result['confidence'],
-        recommendation=rec
+        recommendation=rec,
+        all_predictions=all_predictions,
+        selected_raw=raw_class,
+        other_classes=result.get('other_classes', [])
     )
+
+@app.route('/update-history-selection', methods=['POST'])
+def update_history_selection():
+    if not current_user.is_authenticated:
+        return {'success': False, 'error': 'Not logged in'}, 401
+    data = request.get_json()
+    filename = data.get('filename')
+    selected_raw = data.get('selected_raw')
+    pretty_map = get_plant_model().pretty_map
+    pretty = pretty_map.get(selected_raw, selected_raw)
+    # Find the most recent history entry for this user and file
+    entry = History.query.filter_by(user_id=current_user.id, filename=filename).order_by(History.id.desc()).first()
+    if entry:
+        entry.disease = pretty
+        db.session.commit()
+        return {'success': True}
+    return {'success': False, 'error': 'History entry not found'}, 404
+
 
 
 @app.route('/history')
