@@ -1,4 +1,4 @@
-# 🌿 PlantProject: Plant Disease Detection & Care Assistant
+# 🌿 SPROUT: Plant Disease Detection & Care Assistant
 
 ## 🔗 Live Demo
 **[Visit the Live Application](https://plant-app-129345399998.us-central1.run.app/)**
