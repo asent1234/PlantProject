@@ -4,7 +4,7 @@
 **[Visit the Live Application](https://plant-app-129345399998.us-central1.run.app/)**
 
 ## 📝 Description
-PlantProject is a comprehensive plant health management platform that combines cutting-edge machine learning with agricultural expertise. The application helps gardeners, farmers, and plant enthusiasts identify plant diseases from images and receive tailored care recommendations based on scientifically-validated sources.
+SPROUT is a comprehensive plant health management platform that combines cutting-edge machine learning with agricultural expertise. The application helps gardeners, farmers, and plant enthusiasts identify plant diseases from images and receive tailored care recommendations based on scientifically-validated sources.
 
 ### ✨ Key Features
 - **AI-Powered Disease Detection**: Upload images of plant leaves to identify 38 different plant diseases across various crops
