@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 import os
 import uuid
 from dotenv import load_dotenv
@@ -11,7 +11,7 @@ load_dotenv()
 # Critical imports needed at startup
 from datetime import datetime
 from werkzeug.utils import secure_filename
-from flask_sqlalchemy import SQLAlchemy  # Required for database setup
+from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin, login_user, LoginManager, login_required, logout_user, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField
@@ -28,9 +28,22 @@ app = Flask(__name__)
 UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', 'sqlite:///database.db')  # Use RDS or other DB in production
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_secret_key')
+
+# IMPORTANT: Fixed secret key - DO NOT CHANGE THIS VALUE OR SESSIONS WILL BREAK
+app.config['SECRET_KEY'] = 'permanent_secret_key_12345'
+
+# File upload limits
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
+
+# Session configuration - simple and reliable
+app.config['WTF_CSRF_ENABLED'] = False  # Temporarily disable CSRF protection
+app.config['SESSION_PERMANENT'] = True  # Make sessions permanent
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 24 * 7  # 7 days in seconds
+app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Allow redirects
+app.config['REMEMBER_COOKIE_DURATION'] = 3600 * 24 * 7  # 7 days
 
 # Ensure the upload folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -42,6 +55,10 @@ bcrypt = Bcrypt(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# Initialize database tables
+with app.app_context():
+    db.create_all()  # Create database tables if they don't exist
 
 
 @login_manager.user_loader
@@ -248,7 +265,7 @@ def get_chatbot_engine():
         # Force garbage collection before loading chatbot
         gc.collect()
         # Only import the chatbot engine when needed
-        from PlantRagChatbot.query_plant_data import PlantQueryEngine
+        from PlantRagChatbot.plant_query_engine import PlantQueryEngine
         chatbot_engine = PlantQueryEngine()
     return chatbot_engine
 
@@ -317,12 +334,16 @@ def chatbot():
         if current_prediction:
             last_predictions[session_id] = current_prediction
         
-        # Compose prompt with context and possible system message
-        prompt = f"Context:\n{context}\n---\n{system_message}User question: {user_message}"
-        print(f"[Chatbot Debug] Prompt: {repr(prompt)}", file=sys.stderr)
+        # Extract user question and use the RAG system to process it
+        # Include disease context and system message about prediction change as additional context
+        enhanced_user_message = f"{system_message}User question about {current_prediction if current_prediction else 'plants'}: {user_message}"
+        if context:
+            enhanced_user_message = f"Context information: {context}\n\n{enhanced_user_message}"
+            
+        print(f"[Chatbot Debug] Enhanced query: {repr(enhanced_user_message)}", file=sys.stderr)
         
-        # Get response from LLM
-        response = get_chatbot_engine().get_deepseek_completion(prompt, stream=False)
+        # Call query method to utilize the RAG system for retrieving relevant information
+        response = get_chatbot_engine().query(enhanced_user_message, force_direct=False, stream=False)
         return jsonify({'response': response})
         
     except Exception as e:
@@ -374,6 +395,7 @@ def health_check():
 
 @app.route('/')
 def home():
+    # Simple home page route - template handles auth detection
     return render_template('home.html')
 
 
@@ -382,13 +404,52 @@ def home():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # Redirect to dashboard if already logged in
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+        
+    print("====== LOGIN FUNCTION CALLED ======")
+    print(f"Request method: {request.method}")
+    
+    # Debug submitted form data
+    if request.method == 'POST':
+        print("Form data submitted:")
+        print(f"Username: {request.form.get('username', 'NOT PROVIDED')}")
+        print(f"Password provided: {'YES' if request.form.get('password') else 'NO'}")
+    
     form = LoginForm()
+    print(f"Form validation status: {form.validate_on_submit()}")
+    
+    # Process login when form submitted and validated
     if form.validate_on_submit():
-        user = User.query.filter_by(username=form.username.data).first()
-        if user:
-            if bcrypt.check_password_hash(user.password, form.password.data):
+        try:
+            # Find user by username
+            user = User.query.filter_by(username=form.username.data).first()
+            
+            # If user exists and password is correct
+            if user and bcrypt.check_password_hash(user.password, form.password.data):
+                # Use Flask-Login to log in user
                 login_user(user)
-                return redirect(url_for('dashboard'))
+                
+                # Set session data explicitly to ensure it persists
+                session['logged_in'] = True
+                session['username'] = user.username
+                session['user_id'] = str(user.id)
+                session.modified = True
+                
+                # Send success message
+                flash('Login successful!', 'success')
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('home'))
+            elif user:
+                # Invalid password
+                flash('Login failed. Please check your password.', 'danger')
+            else:
+                flash('Username not found. Please check your username or sign up.', 'danger')
+        except Exception as e:
+            flash(f'Login error: {str(e)}', 'danger')
+            
+    # If form validation fails or login unsuccessful, return to login page with form data intact
     return render_template('login.html', form=form)
 
 
@@ -398,24 +459,64 @@ def dashboard():
     return render_template('dashboard.html')
 
 
-@app.route('/logout', methods=['GET', 'POST'])
-@login_required
+@app.route('/logout')
 def logout():
-    logout_user()
-    return redirect(url_for('login'))
+    # Log out the user with Flask-Login
+    if current_user.is_authenticated:
+        logout_user()
+    
+    # Clear the session completely
+    session.clear()
+    
+    # Create a response that prevents caching
+    response = redirect(url_for('home'))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
+    # Delete all cookies that might be related to authentication
+    response.delete_cookie('session')
+    response.delete_cookie('remember_token')
+    
+    # Inform the user
+    flash('You have been logged out!', 'info')
+    
+    return response
 
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
+    # Redirect to dashboard if already logged in
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    # Create form
     form = SignUpForm()
-
+    
     if form.validate_on_submit():
-        hashed_password = bcrypt.generate_password_hash(form.password.data)
-        new_user = User(username=form.username.data, password=hashed_password)
-        db.session.add(new_user)
-        db.session.commit()
-        return redirect(url_for('login'))
-
+        try:
+            # Create user with password hash
+            hashed_password = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
+            new_user = User(username=form.username.data, password=hashed_password)
+            db.session.add(new_user)
+            db.session.commit()
+            
+            # Login user after signup
+            login_user(new_user)
+            
+            # Set session variables
+            session['logged_in'] = True
+            session['username'] = new_user.username
+            session['user_id'] = str(new_user.id)
+            session.modified = True
+            
+            flash('Account created and you are now logged in!', 'success')
+            return redirect(url_for('home'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error creating account: {str(e)}', 'danger')
+    
     return render_template('signup.html', form=form)
 
 
@@ -514,16 +615,30 @@ def process_image(filename):
             'recommendation': rec
         }]
 
-    # Save to history if user is logged in
+    # Save to history if user is logged in, but only if it's not already in history
     if current_user.is_authenticated:
-        history_entry = History(
+        # Check if this file already exists in user's history
+        existing_entry = History.query.filter_by(
             user_id=current_user.id,
-            filename=filename,
-            disease=result['disease'],
-            confidence=result['confidence']
-        )
-        db.session.add(history_entry)
-        db.session.commit()
+            filename=filename
+        ).first()
+        
+        if not existing_entry:
+            # Only create a new history entry if one doesn't exist
+            history_entry = History(
+                user_id=current_user.id,
+                filename=filename,
+                disease=result['disease'],
+                confidence=result['confidence']
+            )
+            db.session.add(history_entry)
+            db.session.commit()
+        else:
+            # Update the existing entry if dropdown selection changed
+            if existing_entry.disease != result['disease'] or existing_entry.confidence != result['confidence']:
+                existing_entry.disease = result['disease']
+                existing_entry.confidence = result['confidence']
+                db.session.commit()
     
     # Find the raw class name from the pretty name
     raw_class = None
@@ -597,6 +712,4 @@ background_thread.daemon = True  # Thread will exit when main process exits
 background_thread.start()
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # Create database tables if they don't exist
     app.run(host='0.0.0.0', port=8080, debug=False)  # Use port 8080 for deployment compatibility

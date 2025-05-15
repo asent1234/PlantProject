@@ -27,12 +27,18 @@ RUN pip install -r requirements.txt
 # Copy your project files
 COPY . /app/
 
+# Make the entrypoint script executable
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Explicitly tell Docker which port we're using
 EXPOSE 8080
 
 # Add a health check to help containers and orchestrators know when the app is ready
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
+
+# Use our custom entrypoint script
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # Run the application using Gunicorn production server
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "application:app"]

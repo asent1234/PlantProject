@@ -12,11 +12,13 @@ sys.path.insert(0, PROJECT_ROOT)
 
 # Load environment variables from root .env file
 load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
-# from langchain_chrPlant import ChrPlant
-# from create_database import OllamaEmbeddings
+
+# Import necessary libraries for embeddings and vector database
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 class PlantQueryEngine:
-    CHROMA_PATH = "chrPlant"
+    CHROMA_PATH = "chroma"
     
     PROMPT_TEMPLATE = """
     Answer the question based only on the following context:
@@ -24,28 +26,48 @@ class PlantQueryEngine:
     {context}
    
     ---
-    Answer the question based on the above context primarily, but take into account that the context may contain information
-    regarding larger crop and agricultural systems. Reduce the application and apply solutions for singular pot
-    plants, so things like crop rotation cannot be applied. Make a determination of which ailment it is specifically
-    and focus on that, and answer in a paragraph form, do not bring back in the percentage numbers: 
+    Important rules for all responses:
+    1. If the user just says a greeting like "hi", "hello", or "yo", ask them what they'd like to know about plant care or diseases in the context of the plant at hand. 
+    2. For actual plant questions, be concise and focus only on what was specifically asked.
+    3. Do not provide lengthy step-by-step plans unless explicitly requested.
+    4. For plant diseases, focus on the specific ailment and practical solutions for pot plants.
+    5. Answer in a paragraph form without percentage numbers.
    
-    {question}
+    User input: {question}
     """
 
     DIRECT_PROMPT_TEMPLATE = """
-    You are an expert in plant plant care and diseases. Please answer the following question about plant plants. 
-    Focus on practical solutions for home gardeners growing plantes in pots or small gardens. 
-    If the question is about a disease or problem, explain how to identify it and provide specific treatment steps: 
+    You are an expert in plant care and diseases. Follow these important rules:
+    1. If the user just says a greeting like "hi", "hello", or "yo", ask them what they'd like to know about plant care or diseases in the context of the plant at hand.
+    2. For actual plant questions, be concise and focus only on what was specifically asked.
+    3. Do not provide lengthy step-by-step plans unless explicitly requested.
+    4. Focus on practical solutions for home gardeners growing plants in pots or small gardens.
+    5. If the question is about a disease, explain identification and specific treatments concisely.
 
-    {question}
+    User input: {question}
     """
 
     def __init__(self, model_name="deepseek-r1:14b", similarity_threshold=0.7, max_results=12):
         self.model_name = model_name
         self.similarity_threshold = similarity_threshold
         self.max_results = max_results
-        # self.embeddings = OllamaEmbeddings(model_name=model_name)
-        # self.db = ChrPlant(persist_directory=self.CHROMA_PATH, embedding_function=self.embeddings)
+        self.embeddings = None
+        self.db = None
+        
+        # Try to initialize HuggingFace embeddings and Chroma database
+        try:
+            print("Initializing HuggingFace embeddings...")
+            self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+            
+            # Load the Chroma database
+            print(f"Loading Chroma database from {self.CHROMA_PATH}...")
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            chroma_path = os.path.join(script_dir, self.CHROMA_PATH)
+            self.db = Chroma(persist_directory=chroma_path, embedding_function=self.embeddings)
+        except Exception as e:
+            print(f"Warning: Could not initialize embeddings or database: {str(e)}")
+            print("The chatbot will function in direct query mode only.")
+            self.db = None
 
     def get_deepseek_completion(self, prompt, stream=False):
         """
@@ -115,28 +137,49 @@ class PlantQueryEngine:
     # Streaming handled in get_deepseek_completion; no separate function needed.
 
     def search_similar_documents(self, query_text):
-        results = self.db.similarity_search_with_relevance_scores(query_text, k=self.max_results)
-        if len(results) == 0 or results[0][1] < self.similarity_threshold:
+        # If database is not available, return None to force direct query mode
+        if self.db is None:
             return None
-        return results
+        
+        try:
+            results = self.db.similarity_search_with_relevance_scores(query_text, k=self.max_results)
+            if len(results) == 0 or results[0][1] < self.similarity_threshold:
+                return None
+            return results
+        except Exception as e:
+            print(f"Error searching documents: {str(e)}")
+            return None
 
     def format_context(self, results):
-        return "\n\n---\n\n".join([doc.page_content for doc, _score in results])
+        if results is None:
+            return ""
+        try:
+            return "\n\n---\n\n".join([doc.page_content for doc, _score in results])
+        except Exception as e:
+            print(f"Error formatting context: {str(e)}")
+            return ""
 
     def query(self, query_text, force_direct=False, stream=False):
         try:
-            results = None if force_direct else self.search_similar_documents(query_text)
+            # First attempt to use RAG if database is available and not forced to direct mode
+            if not force_direct and self.db is not None:
+                try:
+                    results = self.search_similar_documents(query_text)
+                    if results is not None:
+                        context_text = self.format_context(results)
+                        rag_prompt = self.PROMPT_TEMPLATE.format(context=context_text, question=query_text)
+                        return self.get_deepseek_completion(rag_prompt, stream=stream)
+                except Exception as e:
+                    print(f"Error in RAG query processing, falling back to direct: {str(e)}")
             
-            if force_direct or results is None:
-                direct_prompt = self.DIRECT_PROMPT_TEMPLATE.format(question=query_text)
-                return self.get_deepseek_completion(direct_prompt, stream=stream)
-            
-            context_text = self.format_context(results)
-            rag_prompt = self.PROMPT_TEMPLATE.format(context=context_text, question=query_text)
-            return self.get_deepseek_completion(rag_prompt, stream=stream)
+            # Fall back to direct query mode if RAG fails or is not available
+            direct_prompt = self.DIRECT_PROMPT_TEMPLATE.format(question=query_text)
+            return self.get_deepseek_completion(direct_prompt, stream=stream)
             
         except Exception as e:
-            return f"Error processing query: {str(e)}"
+            error_message = f"Error processing query: {str(e)}"
+            print(error_message)
+            return "I'm sorry, I encountered an error processing your query. Please try again or ask a different question."
 
 if __name__ == "__main__":
     engine = PlantQueryEngine()
